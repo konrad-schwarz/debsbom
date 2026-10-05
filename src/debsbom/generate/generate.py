@@ -63,6 +63,7 @@ class Debsbom:
         with_pkg_archives: bool = True,
         cdx_schema_version: str = "1.6",
         artifact: Path | None = None,
+        bsi_tr_031893: bool = False,
     ):
         self.root = Path(root)
         self.distro_name = distro_name
@@ -78,6 +79,7 @@ class Debsbom:
         self.with_pkg_archives = with_pkg_archives
         self.cdx_schema_version = cdx_schema_version
         self.artifact = artifact
+        self.bsi_tr_031893 = bsi_tr_031893
 
         self.spdx_namespace = spdx_namespace
         if spdx_namespace is not None and self.spdx_namespace.fragment:
@@ -322,7 +324,10 @@ class Debsbom:
         self._merge_apt_source_data(packages, repos, source_filter)
 
         bin_names_apt = set(
-            map(lambda bn: (bn[0], self.distro_arch if bn[1] == "all" else bn[1]), bin_names_apt)
+            map(
+                lambda bn: (bn[0], self.distro_arch if bn[1] == "all" else bn[1]),
+                bin_names_apt,
+            )
         )
 
         def extended_states_filter(pf: ExtendedStates.PackageFilter) -> bool:
@@ -405,6 +410,7 @@ class Debsbom:
                 virtual_packages=self.virtual_packages,
                 recommends_deps=self.recommends_deps,
                 suggests_deps=self.suggests_deps,
+                bsi_tr_031893=self.bsi_tr_031893,
                 progress_cb=progress_cb,
             )
         if sbom_type is SBOMType.SPDX:
@@ -425,5 +431,6 @@ class Debsbom:
                 virtual_packages=self.virtual_packages,
                 recommends_deps=self.recommends_deps,
                 suggests_deps=self.suggests_deps,
+                bsi_tr_031893=self.bsi_tr_031893,
                 progress_cb=progress_cb,
             )

@@ -156,7 +156,7 @@ def spdx_package_repr(package: Package, vendor: str = "debian") -> spdx_package.
     if match:
         supplier_name = match["supplier_name"].strip()
         supplier_email = match["supplier_email"]
-    if match and any([cue in supplier_name.lower() for cue in SPDX_SUPPLIER_ORG_CUE]):
+    if match and any(cue in supplier_name.lower() for cue in SPDX_SUPPLIER_ORG_CUE):
         supplier = spdx_actor.Actor(
             actor_type=spdx_actor.ActorType.ORGANIZATION,
             name=supplier_name,
@@ -326,13 +326,17 @@ def spdx_bom(
     namespace: tuple | None = None,  # 6 item tuple representing an URL
     timestamp: datetime | None = None,
     add_meta_data: dict[str, str] | None = None,
-    virtual_packages: dict[str, list[tuple[VirtualPackage, BinaryPackage]]] = {},
+    virtual_packages: dict[str, list[tuple[VirtualPackage, BinaryPackage]]]
+    | None = None,
     recommends_deps: bool = True,
     suggests_deps: bool = False,
     bsi_tr_031893: bool = False,
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> spdx_document.Document:
     "Return a valid SPDX SBOM."
+
+    if virtual_packages is None:
+        virtual_packages = {}
 
     data = []
 
@@ -353,6 +357,8 @@ def spdx_bom(
     cur_step = 0
 
     logger.info("Creating packages...")
+    relationships = []
+    files = []
     for package in packages:
         if progress_cb:
             progress_cb(cur_step, num_steps, package.name)
@@ -361,7 +367,27 @@ def spdx_bom(
         entry = spdx_package_repr(package, vendor=base_distro_vendor)
         data.append(entry)
 
-    relationships = []
+        if bsi_tr_031893:
+            reference = Reference.make_from_pkg(package)
+            file = spdx_file.File(
+                name="./" + package.package_filename(),
+                spdx_id=SPDX_REF_PREFIX
+                + ".."
+                + re.sub(SPDX_ID_RE, ".", package.package_filename()),
+                file_types=[spdx_file.FileType.ARCHIVE],
+                checksums=[],
+                license_concluded=SpdxNoAssertion(),
+                license_info_in_file=[SpdxNoAssertion()],
+            )
+            files.append(file)
+            relationships.append(
+                spdx_relationship.Relationship(
+                    spdx_element_id=reference.as_str(SBOMType.SPDX),
+                    relationship_type=spdx_relationship.RelationshipType.DISTRIBUTION_ARTIFACT,
+                    related_spdx_element_id=file.spdx_id,
+                )
+            )
+
     logger.info("Resolving dependencies...")
     # after we have found all packages we can start to resolve dependencies
     refs = {
@@ -469,5 +495,6 @@ def spdx_bom(
         creation_info=creation_info,
         packages=data,
         relationships=relationships,
+        files=files,
     )
     return document

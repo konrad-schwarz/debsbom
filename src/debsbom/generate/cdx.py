@@ -62,7 +62,10 @@ def make_supplier_from_str(supplier: str) -> cdx_contact.OrganizationalEntity | 
 
 
 def cdx_package_repr(
-    package: Package, refs: dict[str, cdx_bom_ref.BomRef], vendor: str = "debian"
+    package: Package,
+    refs: dict[str, cdx_bom_ref.BomRef],
+    vendor: str = "debian",
+    bsi_tr_031893: bool = False,
 ) -> cdx_component.Component | None:
     """
     Get the CDX representation of a Package.
@@ -140,7 +143,16 @@ def cdx_package_repr(
 
         logger.debug(f"Created source component: {entry}")
     else:
-        raise RuntimeError(f"The package {package} is neither a source nor a binary package")
+        raise RuntimeError(
+            f"The package {package} is neither a source nor a binary package"
+        )
+    if bsi_tr_031893:
+        entry.properties.add(
+            cdx_model.Property(
+                name="bsi:component:filename",
+                value=package.package_filename(),
+            )
+        )
 
     if package.omnibor_id:
         entry.omnibor_ids = [package.omnibor_id]
@@ -272,6 +284,7 @@ def cyclonedx_bom(
     virtual_packages: dict[str, list[tuple[VirtualPackage, BinaryPackage]]] = {},
     recommends_deps: bool = True,
     suggests_deps: bool = False,
+    bsi_tr_031893: bool = False,
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> cdx_bom.Bom:
     """Return a valid CycloneDX SBOM."""
@@ -297,8 +310,12 @@ def cyclonedx_bom(
             progress_cb(cur_step, num_steps, package.name)
         cur_step += 1
 
-        entry = cdx_package_repr(package, refs, vendor=base_distro_vendor)
-        dependency_refs[Reference.make_from_pkg(package).as_str(SBOMType.CycloneDX)] = package
+        entry = cdx_package_repr(
+            package, refs, vendor=base_distro_vendor, bsi_tr_031893=bsi_tr_031893
+        )
+        dependency_refs[Reference.make_from_pkg(package).as_str(SBOMType.CycloneDX)] = (
+            package
+        )
         if entry is None:
             continue
         data.add(entry)

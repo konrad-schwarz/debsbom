@@ -81,6 +81,7 @@ class GenerateCmd(GenerateInput):
                 recommends_deps=args.recommends_deps,
                 suggests_deps=args.suggests_deps,
                 artifact=Path(args.artifact) if args.artifact else None,
+                bsi_tr_031893=args.bsi_tr_031893,
             )
             if args.from_pkglist:
                 warn_if_tty()
@@ -153,6 +154,12 @@ class GenerateCmd(GenerateInput):
             "--package-archives",
             action=argparse.BooleanOptionalAction,
             help="use apt package archives to add more information (default: %(default)s)",
+            default=False,
+        )
+        parser.add_argument(
+            "--bsi_tr-031893",
+            action="store_true",
+            help="compliant to BSI TR-03183 Part 2, version 2.1.0",
             default=False,
         )
         arg_mark_as_file(
