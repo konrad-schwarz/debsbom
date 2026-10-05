@@ -93,7 +93,9 @@ class Debsbom:
 
         logger.info(f"Configuration: {self.__dict__}")
         self.packages: set[Package] = set()
-        self.virtual_packages: dict[str, list[tuple[VirtualPackage, BinaryPackage]]] = {}
+        self.virtual_packages: dict[
+            str, list[tuple[VirtualPackage, BinaryPackage]]
+        ] = {}
 
     @staticmethod
     def _parse_meta_data(meta_args: list[str] | None) -> dict[str, str]:
@@ -104,14 +106,20 @@ class Debsbom:
 
         for item in meta_args:
             if "=" not in item:
-                raise ValueError(f"invalid --add-meta-data '{item}', expected key=value")
+                raise ValueError(
+                    f"invalid --add-meta-data '{item}', expected key=value"
+                )
 
             key, value = item.split("=", 1)
 
             if not key:
-                raise ValueError(f"invalid --add-meta-data '{item}', key must be non-empty")
+                raise ValueError(
+                    f"invalid --add-meta-data '{item}', key must be non-empty"
+                )
             if not value:
-                raise ValueError(f"invalid --add-meta-data '{item}', value must be non-empty")
+                raise ValueError(
+                    f"invalid --add-meta-data '{item}', value must be non-empty"
+                )
 
             metadata[key] = value
 
@@ -128,7 +136,9 @@ class Debsbom:
             packages_it = Package.parse_status_file(self.root / "var/lib/dpkg/status")
             merge_ext_states = True
         if not self.distro_arch:
-            self.distro_arch = self._parse_distro_arch(self.root / "var/lib/dpkg/arch-native")
+            self.distro_arch = self._parse_distro_arch(
+                self.root / "var/lib/dpkg/arch-native"
+            )
 
         pkgdict = dict(map(lambda p: (hash(p), p), packages_it))
         if not self.distro_arch and from_rootfs:
@@ -165,10 +175,14 @@ class Debsbom:
         if apt_lists.is_dir():
             return Repository.from_apt_cache(apt_lists)
         else:
-            logger.info("Missing apt lists cache, some source packages might be incomplete")
+            logger.info(
+                "Missing apt lists cache, some source packages might be incomplete"
+            )
             return iter([])
 
-    def _merge_pkginfo(self, our_pkgs: dict[int, Package], cache_pkgs: Iterable[Package]):
+    def _merge_pkginfo(
+        self, our_pkgs: dict[int, Package], cache_pkgs: Iterable[Package]
+    ):
         # O(n) algorithm to extend our packages with information from the apt cache
         # Idea: Iterate apt cache (expensive!) and annotate local package if matching
         for p in cache_pkgs:
@@ -275,7 +289,9 @@ class Debsbom:
             self._add_pkg_archive_data(packages)
 
         to_add = []
-        for source_pkg in Package.referenced_src_packages(filter_binaries(packages.values())):
+        for source_pkg in Package.referenced_src_packages(
+            filter_binaries(packages.values())
+        ):
             shash = hash(source_pkg)
             if shash not in packages:
                 to_add.append(source_pkg)
@@ -336,7 +352,9 @@ class Debsbom:
                 logger.debug(f"no copyright information for {bin_pkg}")
                 continue
 
-    def _virtual_packages(self) -> dict[str, list[tuple[VirtualPackage, BinaryPackage]]]:
+    def _virtual_packages(
+        self,
+    ) -> dict[str, list[tuple[VirtualPackage, BinaryPackage]]]:
         binary_packages = filter(lambda p: p.is_binary(), self.packages)
 
         virtual_packages = {}

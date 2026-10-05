@@ -2,39 +2,44 @@
 #
 # SPDX-License-Identifier: MIT
 
-from importlib.metadata import version, metadata
+import logging
+from collections.abc import Callable
+from datetime import datetime
+from hashlib import sha1, sha256
+from importlib.metadata import metadata, version
+from pathlib import Path
+from uuid import UUID, uuid4
+
 import cyclonedx.model as cdx_model
 import cyclonedx.model.bom as cdx_bom
 import cyclonedx.model.bom_ref as cdx_bom_ref
 import cyclonedx.model.component as cdx_component
-import cyclonedx.model.tool as cdx_tool
 import cyclonedx.model.contact as cdx_contact
-import cyclonedx.model.dependency as cdx_dependency
 import cyclonedx.model.definition as cdx_definition
+import cyclonedx.model.dependency as cdx_dependency
+import cyclonedx.model.tool as cdx_tool
 from cyclonedx.model import HashAlgorithm as cdx_hashalgo
 from cyclonedx.model import HashType as cdx_hashtype
-from cyclonedx.model.license import LicenseAcknowledgement, LicenseExpression, LicenseRepository
-from datetime import datetime
-from hashlib import sha1, sha256
+from cyclonedx.model.license import (
+    LicenseAcknowledgement,
+    LicenseExpression,
+    LicenseRepository,
+)
 from license_expression import AND, ExpressionError
-import logging
-from pathlib import Path
 from sortedcontainers import SortedSet
-from uuid import UUID, uuid4
-from collections.abc import Callable
 
 from ..apt.copyright import UnknownLicenseError
-from ..util.checksum_cdx import checksum_to_cdx
 from ..dpkg.package import (
     BinaryPackage,
     DebianPriority,
-    Package,
     DpkgStatus,
+    Package,
     VirtualPackage,
     filter_binaries,
 )
-from ..sbom import SUPPLIER_PATTERN, CDX_REF_PREFIX, Reference, SBOMType, BOM_Standard
+from ..sbom import CDX_REF_PREFIX, SUPPLIER_PATTERN, BOM_Standard, Reference, SBOMType
 from ..util.checksum import calculate_checksums
+from ..util.checksum_cdx import checksum_to_cdx
 from ..util.gitoid import gitoid_hashes
 from ..util.omnibor import artifact_id_from_digest
 from ..util.swh import swh_id_from_digest
@@ -48,7 +53,9 @@ def make_supplier_from_str(supplier: str) -> cdx_contact.OrganizationalEntity | 
         supplier = cdx_contact.OrganizationalEntity(name=match["supplier_name"].strip())
         supplier_email = match["supplier_email"]
         if supplier_email:
-            supplier.contacts = [cdx_contact.OrganizationalContact(email=supplier_email)]
+            supplier.contacts = [
+                cdx_contact.OrganizationalContact(email=supplier_email)
+            ]
     else:
         supplier = None
     return supplier
@@ -101,7 +108,9 @@ def cdx_package_repr(
         entry.properties.add(cdx_model.Property(name="section", value=package.section))
         # use debian terminology yes / no instead of true / false
         entry.properties.add(
-            cdx_model.Property(name="essential", value="yes" if package.essential else "no")
+            cdx_model.Property(
+                name="essential", value="yes" if package.essential else "no"
+            )
         )
         logger.debug(f"Created binary component: {entry}")
     elif package.is_source():
@@ -120,13 +129,15 @@ def cdx_package_repr(
                 if len(licenses) > 1:
                     combined = AND(*licenses)
                 expression = LicenseExpression(
-                    str(combined.simplify()), acknowledgement=LicenseAcknowledgement.DECLARED
+                    str(combined.simplify()),
+                    acknowledgement=LicenseAcknowledgement.DECLARED,
                 )
 
                 license_repo = LicenseRepository([expression])
                 entry.licenses = license_repo
             except (ExpressionError, UnknownLicenseError) as e:
                 logger.debug(f"no SPDX license expression for {package}: {e}")
+
         logger.debug(f"Created source component: {entry}")
     else:
         raise RuntimeError(f"The package {package} is neither a source nor a binary package")
@@ -197,7 +208,9 @@ def make_metadata(
     tool_urls = metadata("debsbom").get_all("Project-URL")
     tool_component = cdx_component.Component(
         bom_ref=cdx_bom_ref.BomRef(
-            Reference("debsbom-{}".format(version("debsbom"))).as_str(SBOMType.CycloneDX)
+            Reference("debsbom-{}".format(version("debsbom"))).as_str(
+                SBOMType.CycloneDX
+            )
         ),
         type=cdx_component.ComponentType.APPLICATION,
         name="debsbom",
@@ -220,7 +233,8 @@ def make_metadata(
     # add meta-data as cyclonedx property
     if add_meta_data:
         bom_metadata.properties = [
-            cdx_model.Property(name=key, value=value) for key, value in add_meta_data.items()
+            cdx_model.Property(name=key, value=value)
+            for key, value in add_meta_data.items()
         ]
 
     return bom_metadata

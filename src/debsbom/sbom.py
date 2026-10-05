@@ -37,7 +37,9 @@ SPDX_SUPPLIER_ORG_CUE = [
 
 
 # pattern to match the common "John Doe <john@doe.com>"
-SUPPLIER_PATTERN = re.compile("(?P<supplier_name>^[^<]+)(\\<(?P<supplier_email>.+)\\>)?")
+SUPPLIER_PATTERN = re.compile(
+    "(?P<supplier_name>^[^<]+)(\\<(?P<supplier_email>.+)\\>)?"
+)
 
 
 class SBOMType(Enum):

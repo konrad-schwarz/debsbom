@@ -4,17 +4,18 @@
 
 import argparse
 import logging
-from pathlib import Path
 import sys
+from pathlib import Path
 
 from debsbom import HAS_PYTHON_APT
-from .output import SbomOutput
-from .input import GenerateInput, warn_if_tty
+
 from ..bomwriter.bomwriter import SerializerOpts
 from ..generate.generate import Debsbom
 from ..generate.rootfs import rootfs_directory
 from ..sbom import BOM_Standard, SBOMType
 from ..util.progress import progress_cb
+from .input import GenerateInput, warn_if_tty
+from .output import SbomOutput
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,9 @@ class GenerateCmd(GenerateInput):
                     "`pip install debsbom[spdx]`, `pip install debsbom[cdx]`."
                 )
         else:
-            sbom_types: list[SBOMType] = [SBOMType.from_str(stype) for stype in args.sbom_type]
+            sbom_types: list[SBOMType] = [
+                SBOMType.from_str(stype) for stype in args.sbom_type
+            ]
             for stype in sbom_types:
                 stype.validate_dependency_availability()
 
@@ -50,7 +53,9 @@ class GenerateCmd(GenerateInput):
             cdx_standard = BOM_Standard.STANDARD_BOM
 
         if not HAS_PYTHON_APT:
-            logger.info("Module 'apt' from 'python-apt' missing. Using slower internal parser.")
+            logger.info(
+                "Module 'apt' from 'python-apt' missing. Using slower internal parser."
+            )
 
         if args.root == "-" and args.from_pkglist:
             raise ValueError("--root - cannot be combined with --from-pkglist")
@@ -86,7 +91,9 @@ class GenerateCmd(GenerateInput):
                     t,
                     progress_cb=progress_cb if args.progress else None,
                 )
-                opts = SerializerOpts.create(bomtype=t, schema_version=args.cdx_schema_version)
+                opts = SerializerOpts.create(
+                    bomtype=t, schema_version=args.cdx_schema_version
+                )
                 SbomOutput.write_out_arg(bom, t, args.out, args.validate, opts)
 
     @classmethod

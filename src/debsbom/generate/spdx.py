@@ -2,21 +2,25 @@
 #
 # SPDX-License-Identifier: MIT
 
+import logging
+import re
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from hashlib import sha1, sha256
 from importlib.metadata import version
-from license_expression import AND, ExpressionError
-import logging
 from pathlib import Path
-import spdx_tools.spdx.model.actor as spdx_actor
-import spdx_tools.spdx.model.document as spdx_document
-from spdx_tools.spdx.model.spdx_no_assertion import SpdxNoAssertion
-import spdx_tools.spdx.model.package as spdx_package
-import spdx_tools.spdx.model.relationship as spdx_relationship
-from spdx_tools.spdx.model.checksum import Checksum
 from urllib.parse import urlparse, urlunparse
 from uuid import uuid4
+
+import spdx_tools.spdx.model as spdx_model
+import spdx_tools.spdx.model.actor as spdx_actor
+import spdx_tools.spdx.model.document as spdx_document
+import spdx_tools.spdx.model.file as spdx_file
+import spdx_tools.spdx.model.package as spdx_package
+import spdx_tools.spdx.model.relationship as spdx_relationship
+from license_expression import AND, ExpressionError
+from spdx_tools.spdx.model.checksum import Checksum
+from spdx_tools.spdx.model.spdx_no_assertion import SpdxNoAssertion
 
 from ..apt.copyright import UnknownLicenseError
 from ..dpkg.package import (
@@ -27,23 +31,24 @@ from ..dpkg.package import (
     VirtualPackage,
     filter_binaries,
 )
+from ..sbom import (
+    SPDX_ID_RE,
+    SPDX_REF_DOCUMENT,
+    SPDX_REF_PREFIX,
+    SPDX_REFERENCE_TYPE_GITOID,
+    SPDX_REFERENCE_TYPE_PURL,
+    SPDX_REFERENCE_TYPE_SWH,
+    SPDX_REFERENCE_TYPE_VCS,
+    SPDX_SUPPLIER_ORG_CUE,
+    SUPPLIER_PATTERN,
+    Reference,
+    SBOMType,
+)
 from ..util.checksum import calculate_checksums
 from ..util.checksum_spdx import checksum_to_spdx
 from ..util.gitoid import gitoid_hashes
 from ..util.omnibor import artifact_id_from_digest
 from ..util.swh import swh_id_from_digest
-from ..sbom import (
-    Reference,
-    SPDX_REF_PREFIX,
-    SPDX_REF_DOCUMENT,
-    SPDX_REFERENCE_TYPE_GITOID,
-    SPDX_REFERENCE_TYPE_SWH,
-    SUPPLIER_PATTERN,
-    SPDX_REFERENCE_TYPE_PURL,
-    SPDX_REFERENCE_TYPE_VCS,
-    SPDX_SUPPLIER_ORG_CUE,
-    SBOMType,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +209,8 @@ def spdx_package_repr(package: Package, vendor: str = "debian") -> spdx_package.
             external_references=external_refs,
             primary_package_purpose=spdx_package.PackagePurpose.LIBRARY,
             checksums=[
-                Checksum(checksum_to_spdx(alg), dig) for alg, dig in package.checksums.items()
+                Checksum(checksum_to_spdx(alg), dig)
+                for alg, dig in package.checksums.items()
             ],
         )
         if package.description and "\n" in package.description:
@@ -257,13 +263,16 @@ def spdx_package_repr(package: Package, vendor: str = "debian") -> spdx_package.
             summary="Debian source code package '{}'".format(package.name),
             external_references=external_refs,
             checksums=[
-                Checksum(checksum_to_spdx(alg), dig) for alg, dig in package.checksums.items()
+                Checksum(checksum_to_spdx(alg), dig)
+                for alg, dig in package.checksums.items()
             ],
             primary_package_purpose=spdx_package.PackagePurpose.SOURCE,
         )
         logger.debug(f"Created source package: {spdx_pkg}")
     else:
-        raise RuntimeError(f"The package {package} is neither a source nor a binary package")
+        raise RuntimeError(
+            f"The package {package} is neither a source nor a binary package"
+        )
     return spdx_pkg
 
 
@@ -287,7 +296,9 @@ def make_relationships_for_deps(
             pkg = VirtualPackage.best_match(virtual_candidates, dep)
             if pkg:
                 ref_id = Reference.make_from_pkg(pkg).as_str(SBOMType.SPDX)
-                logger.debug(f"Dependency on virtual package resolved: {dep.name} -> {pkg.name}")
+                logger.debug(
+                    f"Dependency on virtual package resolved: {dep.name} -> {pkg.name}"
+                )
         if ref_id:
             relationship = spdx_relationship.Relationship(
                 spdx_element_id=reference.as_str(SBOMType.SPDX),
@@ -318,6 +329,7 @@ def spdx_bom(
     virtual_packages: dict[str, list[tuple[VirtualPackage, BinaryPackage]]] = {},
     recommends_deps: bool = True,
     suggests_deps: bool = False,
+    bsi_tr_031893: bool = False,
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> spdx_document.Document:
     "Return a valid SPDX SBOM."
@@ -352,9 +364,10 @@ def spdx_bom(
     relationships = []
     logger.info("Resolving dependencies...")
     # after we have found all packages we can start to resolve dependencies
-    refs = dict(
-        map(lambda p: (Reference.make_from_pkg(p).as_str(SBOMType.SPDX), p), binary_packages)
-    )
+    refs = {
+        (Reference.make_from_pkg(p).as_str(SBOMType.SPDX), p): p
+        for p in binary_packages
+    }
     for package in binary_packages:
         if progress_cb:
             progress_cb(cur_step, num_steps, package.name)

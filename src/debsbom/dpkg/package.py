@@ -2,34 +2,35 @@
 #
 # SPDX-License-Identifier: MIT
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from collections.abc import Iterable
-from enum import Enum
-from hashlib import sha1, sha256
 import io
 import itertools
-from pathlib import Path
-from debian.deb822 import Packages, PkgRelation
-from debian.debian_support import Version
 import logging
 import re
+from abc import ABC, abstractmethod
+from collections.abc import Iterable
+from dataclasses import dataclass
+from enum import Enum
+from hashlib import sha1, sha256
+from pathlib import Path
+
+from debian.deb822 import Packages, PkgRelation
+from debian.debian_support import Version
 from packageurl import PackageURL
 
+from .. import HAS_PYTHON_APT
 from ..apt.copyright import Copyright
 from ..util.checksum import (
     ChecksumAlgo,
     ChecksumMismatchError,
     NoMatchingDigestError,
+    calculate_checksums,
     checksums_from_dsc,
     checksums_from_package,
-    calculate_checksums,
     verify_best_matching_digest,
 )
 from ..util.gitoid import gitoid_hashes
 from ..util.omnibor import artifact_id_from_digest
 from ..util.swh import swh_id_from_digest
-from .. import HAS_PYTHON_APT
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +56,10 @@ class DpkgStatus(Enum):
         for checkStatus in DpkgStatus:
             if checkStatus == DpkgStatus.DEBSBOM_UNKNOWN:
                 continue
-            if status in [checkStatus.value, checkStatus.name.lower().replace("_", "-")]:
+            if status in [
+                checkStatus.value,
+                checkStatus.name.lower().replace("_", "-"),
+            ]:
                 return checkStatus
         raise ValueError(f"Unknown dpkg status '{status}'")
 
@@ -115,7 +119,9 @@ def filter_binaries(pkgs: Iterable["Package"]) -> Iterable["BinaryPackage"]:
 
 def filter_installed(pkgs: Iterable["BinaryPackage"]) -> Iterable["BinaryPackage"]:
     """Free function to only return installed binary packages."""
-    return filter(lambda p: p.status in (DpkgStatus.INSTALLED, DpkgStatus.DEBSBOM_UNKNOWN), pkgs)
+    return filter(
+        lambda p: p.status in (DpkgStatus.INSTALLED, DpkgStatus.DEBSBOM_UNKNOWN), pkgs
+    )
 
 
 @dataclass
@@ -129,7 +135,9 @@ class Dependency:
     restrictions: str | None = None
 
     @classmethod
-    def from_pkg_relations(cls, relations: list[list[dict]], is_source=False) -> list["Dependency"]:
+    def from_pkg_relations(
+        cls, relations: list[list[dict]], is_source=False
+    ) -> list["Dependency"]:
         dependencies = []
         for relation in relations:
             for dep in relation:
@@ -208,7 +216,9 @@ class VirtualPackage:
 
     @classmethod
     def best_match(
-        cls, candidates: list[tuple["VirtualPackage", "BinaryPackage"]], dependency: Dependency
+        cls,
+        candidates: list[tuple["VirtualPackage", "BinaryPackage"]],
+        dependency: Dependency,
     ) -> type["BinaryPackage"] | None:
         """Return the best matching virtual package that satisifes the dependency."""
         candidates.sort(key=lambda c: c[0].version or 0, reverse=True)
@@ -289,17 +299,25 @@ class Package(ABC):
             bstream = io.BufferedReader(stream)
 
         if bstream.peek(len(DPKG_STATUS_MAGIC)).startswith(DPKG_STATUS_MAGIC):
-            pkgs_it = cls.inject_src_packages(cls._parse_dpkg_status(bstream, force_no_apt=True))
+            pkgs_it = cls.inject_src_packages(
+                cls._parse_dpkg_status(bstream, force_no_apt=True)
+            )
             return PkgListStream(bstream, PkgListType.STATUS_FILE, pkgs_it)
         elif bstream.peek(len(PURL_MAGIC)).startswith(PURL_MAGIC):
             return PkgListStream(
-                stream, PkgListType.PURL_LIST, map(lambda l: Package.from_purl(l.decode()), bstream)
+                stream,
+                PkgListType.PURL_LIST,
+                map(lambda l: Package.from_purl(l.decode()), bstream),
             )
         elif sum(c == b"|"[0] for c in bstream.peek(128).split(b"\n")[0]) == 3:
             return PkgListStream(
-                bstream, PkgListType.ISAR_MANIFEST, cls._parse_manifest_line_stream(bstream)
+                bstream,
+                PkgListType.ISAR_MANIFEST,
+                cls._parse_manifest_line_stream(bstream),
             )
-        return PkgListStream(bstream, PkgListType.PKG_LIST, cls._parse_pkglist_line_stream(bstream))
+        return PkgListStream(
+            bstream, PkgListType.PKG_LIST, cls._parse_pkglist_line_stream(bstream)
+        )
 
     @classmethod
     def _parse_pkglist_line_stream(cls, stream: io.IOBase) -> Iterable["Package"]:
@@ -330,7 +348,9 @@ class Package(ABC):
             yield SourcePackage(name=src, version=srcv)
             bin_parts = bin.split(":")
             if len(bin_parts) != 2:
-                logger.error(f"Binary package '{bin}' misses the architecture specifier")
+                logger.error(
+                    f"Binary package '{bin}' misses the architecture specifier"
+                )
             yield BinaryPackage(
                 name=bin_parts[0],
                 architecture=bin_parts[1] if len(bin_parts) == 2 else "unknown",
@@ -348,7 +368,9 @@ class Package(ABC):
             raise RuntimeError("Not a debian purl", purl)
         if purl.qualifiers.get("arch") == "source":
             package = SourcePackage(
-                name=purl.name, version=purl.version, distro=purl.qualifiers.get("distro")
+                name=purl.name,
+                version=purl.version,
+                distro=purl.qualifiers.get("distro"),
             )
             return package
         else:
@@ -361,10 +383,14 @@ class Package(ABC):
             return package
 
     @classmethod
-    def inject_src_packages(cls, binpkgs: Iterable["BinaryPackage"]) -> Iterable["Package"]:
+    def inject_src_packages(
+        cls, binpkgs: Iterable["BinaryPackage"]
+    ) -> Iterable["Package"]:
         """Create and inject referenced source packages"""
         return cls._unique_everseen(
-            itertools.chain.from_iterable(map(lambda p: cls._resolve_sources(p, True), binpkgs))
+            itertools.chain.from_iterable(
+                map(lambda p: cls._resolve_sources(p, True), binpkgs)
+            )
         )
 
     @classmethod
@@ -373,7 +399,9 @@ class Package(ABC):
     ) -> Iterable["SourcePackage"]:
         """Create and return referenced source packages"""
         return cls._unique_everseen(
-            itertools.chain.from_iterable(map(lambda p: cls._resolve_sources(p, False), binpkgs))
+            itertools.chain.from_iterable(
+                map(lambda p: cls._resolve_sources(p, False), binpkgs)
+            )
         )
 
     @classmethod
@@ -406,7 +434,9 @@ class Package(ABC):
         self._merge_checksums(other.checksums)
 
     @classmethod
-    def _resolve_sources(cls, pkg: "BinaryPackage", add_pkg=False) -> Iterable["Package"]:
+    def _resolve_sources(
+        cls, pkg: "BinaryPackage", add_pkg=False
+    ) -> Iterable["Package"]:
         """
         Returns an iterator to resolve the source package of a binary package.
         If add_pkg=True is set, the passed binary package is returned as well.
@@ -418,10 +448,14 @@ class Package(ABC):
         for bu in pkg.built_using:
             # Add partial source package. This can later be enhanced by merging it with
             # a more complete source package we discovered via other mechanisms (e.g. apt cache).
-            logger.debug(f"Found built-using source package: '{bu.name}@{bu.version[1]}'")
+            logger.debug(
+                f"Found built-using source package: '{bu.name}@{bu.version[1]}'"
+            )
             yield SourcePackage(bu.name, bu.version[1], distro=pkg.distro)
         for sbu in pkg.static_built_using:
-            logger.debug(f"Found static-built-using source package: '{sbu.name}@{sbu.version[1]}'")
+            logger.debug(
+                f"Found static-built-using source package: '{sbu.name}@{sbu.version[1]}'"
+            )
             yield SourcePackage(sbu.name, sbu.version[1], distro=pkg.distro)
         if add_pkg:
             yield pkg
@@ -455,7 +489,9 @@ class Package(ABC):
     def _calculate_persistent_ids(self):
         """Calculate omnibor ID and swh ID and add them to the instance."""
         try:
-            sha256_digest, sha1_digest = gitoid_hashes(self.local_file, [sha256(), sha1()])
+            sha256_digest, sha1_digest = gitoid_hashes(
+                self.local_file, [sha256(), sha1()]
+            )
         except FileNotFoundError:
             # simply keep the fields empty and return
             return
@@ -625,7 +661,9 @@ class SourcePackage(Package):
         """Return the name of the .dsc file"""
         # TODO: find where this filename format is specified
         if self.version.debian_revision:
-            version_wo_epoch = f"{self.version.upstream_version}-{self.version.debian_revision}"
+            version_wo_epoch = (
+                f"{self.version.upstream_version}-{self.version.debian_revision}"
+            )
         else:
             version_wo_epoch = self.version.upstream_version
         return f"{self.name}_{version_wo_epoch}.dsc"
@@ -859,7 +897,9 @@ class BinaryPackage(Package):
             self.status = other.status
         elif other.status != DpkgStatus.DEBSBOM_UNKNOWN and self.status != other.status:
             # this indicates an internal error
-            logger.warning(f"package statuses are inconsistent: {self.status} != {other.status}")
+            logger.warning(
+                f"package statuses are inconsistent: {self.status} != {other.status}"
+            )
 
         def _merge_lists(list1: list, list2: list) -> list:
             list1.extend(x for x in list2 if x not in list1)
@@ -946,7 +986,9 @@ class BinaryPackage(Package):
         pre_pdepends = package.relations["pre-depends"] or []
         pre_dependencies = Dependency.from_pkg_relations(pre_pdepends)
 
-        provides = VirtualPackage.from_pkg_relations(package.relations["provides"] or [])
+        provides = VirtualPackage.from_pkg_relations(
+            package.relations["provides"] or []
+        )
 
         recommends = package.relations["recommends"] or []
         recommends = Dependency.from_pkg_relations(recommends)
