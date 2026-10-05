@@ -15,7 +15,7 @@ Offline SBOM Generation
 
 What this also means is that some information that would theoretically be available by a simple lookup on e.g. snapshot.debian.org is not available in the generated SBOM.
 
-This restriction does not go for other commands, e.g. the ``download`` command requires Internet access of course.
+This restriction does not go for commands other than ``generate``, e.g. the ``download`` command requires Internet access of course.
 
 Information Sources
 -------------------
