@@ -371,6 +371,7 @@ def spdx_bom(
     recommends_deps: bool = True,
     suggests_deps: bool = False,
     use_spdx3: bool = False,
+    bsi_tr_031893: bool = False,
     progress_cb: Callable[[int, int, str], None] | None = None,
 ) -> spdx_document.Document | spdx3_payload.Payload:
     "Return a valid SPDX SBOM."
@@ -387,6 +388,19 @@ def spdx_bom(
             return spdx3_id_from_spdx2(SPDX_REF_PREFIX + suffix)
 
     payload = spdx3_payload.Payload()
+    if bsi_tr_031893:
+        agent_debian = spdx3_organization.Organization(
+            spdx_id=spdx3_id("AGENT-" + base_distro_vendor),
+            name="Debian",
+            external_reference=[
+                spdx3_external_reference.ExternalReference(
+                    external_reference_type=spdx3_external_reference.ExternalReferenceType.OTHER,
+                    locator=["https://www.debian.org"],
+                )
+            ],
+        )
+        payload.add_element(agent_debian)
+
     external_document_refs = []
     imports = []
     if use_spdx3:
@@ -470,6 +484,40 @@ def spdx_bom(
                     ),
                 )
 
+            if bsi_tr_031893:
+                file_reference = spdx3_id(
+                    "FILE-" + re.sub(SPDX_ID_RE, ".", package.package_filename())
+                )
+
+                # note: spdx_tools does not support fileKind
+                # property "binaryArtifact" in Table 11 seems to have been invented by the BSI
+                # it does not show up in the SPDX 3.0.1 specification
+                file3 = spdx3_file.File(
+                    spdx_id=file_reference,
+                    name="./" + package.package_filename(),
+                    primary_purpose=spdx3_software_purpose.SoftwarePurpose.INSTALL,
+                    additional_purpose=[
+                        spdx3_software_purpose.SoftwarePurpose.ARCHIVE,
+                        spdx3_software_purpose.SoftwarePurpose.CONTAINER,
+                    ],
+                    comment="software_additionalPurpose field is used "
+                    "to indicate the properties of BSI TR-03183-2",
+                    originated_by=[agent_debian.spdx_id],
+                    verified_using=package3.verified_using,
+                )
+                payload.add_element(file3)
+
+                relationship3 = spdx3_relationship.Relationship(
+                    spdx_id=gen_relationship_id(),
+                    from_element=package_reference,
+                    relationship_type=spdx3_relationship.RelationshipType.DISTRIBUTION_ARTIFACT,
+                    to=[file3.spdx_id],
+                    completeness=spdx3_relationship.RelationshipCompleteness.COMPLETE,
+                )
+                payload.add_element(relationship3)
+
+                package3 = payload.get_element(package_reference)
+                package3.originated_by = [agent_debian.spdx_id]
         else:
             data.append(entry)
 
@@ -566,6 +614,14 @@ def spdx_bom(
                 relationship_type=spdx_relationship.RelationshipType.GENERATES,
                 related_spdx_element_id=reference.as_str(SBOMType.SPDX),
             )
+            if bsi_tr_031893:
+                package3 = payload.get_element(spdx3_id_from_spdx2(sref_id))
+                package3.external_reference.append(
+                    spdx3_external_reference.ExternalReference(
+                        external_reference_type=spdx3_external_reference.ExternalReferenceType.SOURCE_ARTIFACT,
+                        locator=[str(package.purl())],
+                    )
+                )
             logger.debug(f"Created source relationship: {relationship}")
             relationships.append(relationship)
 
@@ -634,74 +690,7 @@ def spdx_bom(
         )
         payload.add_element(document3)
 
-        if False:
-            # The code below minimizes spdx_ids (i.e. RDF identifiers)
-            # via the namespace map.
-            # However, this is the wrong place to do that:
-            # the namespace map must be evaluated in the serialization routine,
-            # so that it can be put into, e.g., the JSON-LDs @context; if this is not done,
-            # the transformation below will not work.
-            new_payload = spdx3_payload.Payload()
-            namespaces = document3.namespaces
-            namespaces.sort(key=lambda l: len(l.namespace), reverse=True)
-
-            def abbreviate_key(key: str) -> str:
-                for n in namespaces:
-                    if key.startswith(n.namespace):
-                        return n.prefix + k.lstrip(n.namespace)
-                return key
-
-            def abbreviate_keys(l: list[str]) -> list[str]:
-                new_list = []
-                for k in l:
-                    new_list.append(abbreviate_key(k))
-                return new_list
-
-            for k, e in payload.get_full_map().items():
-                e.spdx_id = abbreviate_key(k)
-                # the following is not guaranteed to be exhaustive
-                if isinstance(e, spdx3_element.Element):
-                    if e.creation_info is None:
-                        # SPDX 3 specifies that creation_info must exist
-                        # (minCount = maxCount = 1)
-                        # but this adds a whole lot of redundant information.
-                        # Unfortunately, spdx_tools models this as a UML
-                        # "composition", not as an "aggregation", i.e.,
-                        # creation_info does not exist as a separate node
-                        # that can be linked to (saving space), but is copied into each
-                        # element.
-                        # https://github.com/spdx/using/blob/main/docs/getting-started.md
-                        # shows how a blank node can be used to identify the CreationInfo node.
-                        if True:
-                            e.creation_info = creation3_info
-                    else:
-                        e.creation_info.created_by = abbreviate_keys(e.creation_info.created_by)
-                        e.creation_info.created_using = abbreviate_keys(
-                            e.creation_info.created_using
-                        )
-                if isinstance(e, spdx3_artifact.Artifact):
-                    e.originated_by = abbreviate_keys(e.originated_by)
-                    e.supplied_by = abbreviate_keys(e.supplied_by)
-                    e.supplied_by = abbreviate_keys(e.supplied_by)
-                if isinstance(e, spdx3_creation_info.CreationInfo):
-                    e.created_by = abbreviate_keys(e.created_by)
-                    e.created_using = abbreviate_keys(e.created_using)
-                if isinstance(e, spdx3_collection.ElementCollection):
-                    e.element = abbreviate_keys(e.element)
-                    e.root_element = abbreviate_keys(e.root_element)
-
-                if isinstance(e, spdx3_relationship.Relationship):
-                    e.from_element = abbreviate_key(e.from_element)
-                    e.to = abbreviate_keys(e.to)
-                    if isinstance(e, spdx3_vlun_assessment_relationship.VulnAssessmentRelationship):
-                        e.assessed_element = abbreviate_key(e.assessed_element)
-                        e.assessed_element = abbreviate_key(e.assessed_element)
-
-                new_payload.add_element(e)
-
-            return new_payload
-        else:
-            return payload
+        return payload
 
     else:
         document = spdx_document.Document(
