@@ -81,6 +81,7 @@ class GenerateCmd(GenerateInput):
                 warn_if_tty()
             debsbom.scan(pkgs_stream=sys.stdin if args.from_pkglist else None)
             for t in sbom_types:
+                t
                 logger.info(f"Generating {t} SBOM...")
                 bom = debsbom.generate(
                     t,
@@ -105,9 +106,9 @@ class GenerateCmd(GenerateInput):
         parser.add_argument(
             "-t",
             "--sbom-type",
-            choices=["cdx", "spdx"],
+            choices=["cdx", "spdx", "spdx3"],
             action="append",
-            help="SBOM type to generate, can be passed multiple times (default: all)",
+            help="SBOM type to generate, can be passed multiple times (default: cdx and spdx)",
         )
         arg_mark_as_file(
             parser.add_argument(
