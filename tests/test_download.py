@@ -14,6 +14,7 @@ from debsbom.download import (
     PersistentResolverCache,
 )
 from debsbom.download.download import DownloadResult, DownloadStatus
+from debsbom.download.resolver import NotFoundError
 from debsbom.resolver import PackageResolver, PackageStreamResolver
 from debsbom import schema
 from debsbom.dpkg.package import (
@@ -23,7 +24,7 @@ from debsbom.dpkg.package import (
     filter_binaries,
     filter_sources,
 )
-from debsbom.repack.packer import BomTransformer, Packer
+from debsbom.repack.packer import Packer, StandardBomTransformer
 from debsbom.snapshot.client import SnapshotRemoteFile, UpstreamResolver
 import debsbom.snapshot.client as sdlclient
 
@@ -156,6 +157,36 @@ def test_package_resolver_resolve_spdx(spdx_bomfile, tmpdir, sdl):
     assert "binutils" in files[0].filename
 
 
+def test_resolver_cache_negative(tmpdir):
+    """
+    404s (and only those) are cached as negative result
+    """
+    pkg = BinaryPackage(name="does-not-exist", architecture="amd64", version="1.0")
+
+    class _Resolver(sdlclient.Resolver):
+        def resolve(self, p):
+            self.calls += 1
+            raise self.exc
+
+    urs = _Resolver(PersistentResolverCache(Path(tmpdir) / ".cache"))
+    urs.calls = 0
+
+    # transient errors are not cached
+    urs.exc = sdlclient.SnapshotResolveError("boom")
+    for _ in range(2):
+        with pytest.raises(sdlclient.SnapshotResolveError):
+            urs._resolve_pkg(pkg)
+    assert urs.calls == 2
+
+    # 404s are cached
+    urs.exc = sdlclient.SnapshotNotFoundError("gone")
+    with pytest.raises(sdlclient.SnapshotNotFoundError):
+        urs._resolve_pkg(pkg)
+    with pytest.raises(NotFoundError):
+        urs._resolve_pkg(pkg)
+    assert urs.calls == 3
+
+
 @pytest.mark.online
 def test_file_checksum(sdl, tmpdir, http_session):
     bpkg = BinaryPackage(
@@ -220,7 +251,9 @@ def test_repack(tmpdir, spdx_bomfile, cdx_bomfile, http_session, sdl):
         assert len(files) == 3
 
         # merge the source package
-        bt = BomTransformer.create("standard-bom-package", resolver.sbom_type(), resolver.document)
+        bt = StandardBomTransformer.create(
+            "standard-bom-package", resolver.sbom_type(), resolver.document
+        )
         repacked = list(filter(lambda p: p, map(lambda p: packer.repack(p, symlink=True), pkgs)))
         assert len(repacked) == 1
         assert ".merged.tar" in repacked[0].filename
@@ -274,11 +307,25 @@ def test_srcpkg_with_checksum(sdl):
     "dlresult",
     [
         DownloadResult(
-            Path("/tmp/foo.tar"), DownloadStatus.OK, SourcePackage("foo", "1.0"), "foo.tar"
+            Path("/tmp/foo.tar"),
+            DownloadStatus.OK,
+            SourcePackage("foo", "1.0"),
+            "foo.tar",
+            "file:///foo.tar",
         ),
-        DownloadResult(None, DownloadStatus.NOT_FOUND, SourcePackage("foo", "1.0"), "bar.tar"),
         DownloadResult(
-            None, DownloadStatus.CHECKSUM_MISMATCH, BinaryPackage("bar", "1.0"), "bar.tar"
+            None,
+            DownloadStatus.NOT_FOUND,
+            SourcePackage("foo", "1.0"),
+            "bar.tar",
+            "file:///foo.tar",
+        ),
+        DownloadResult(
+            None,
+            DownloadStatus.CHECKSUM_MISMATCH,
+            BinaryPackage("bar", "1.0"),
+            "bar.tar",
+            "file:///foo.tar",
         ),
     ],
 )
