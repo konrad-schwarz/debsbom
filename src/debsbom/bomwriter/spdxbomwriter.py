@@ -32,6 +32,7 @@ class SpdxSerializerOpts(SerializerOpts):
         self.output_format: spdx_formats.FileFormat = output_format_map.get(
             output_format, spdx_formats.FileFormat.JSON
         )
+        self.ext = output_format if self.output_format != spdx_formats.FileFormat.JSON else "json"
 
 
 class SpdxBomWriter(BomWriter, SPDXType):

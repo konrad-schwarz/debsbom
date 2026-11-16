@@ -32,7 +32,10 @@ class CdxSerializerOpts(SerializerOpts):
                     )
         except ValueError:
             raise ValueError(f"Invalid CycloneDX schema version: {cdx_schema_version}")
-        self.output_format: cdx_schema.OutputFormat | None = output_format_map.get(output_format)
+        self.output_format: cdx_schema.OutputFormat = output_format_map.get(
+            output_format, cdx_schema.OutputFormat.JSON
+        )
+        self.ext = output_format if self.output_format != cdx_schema.OutputFormat.JSON else "json"
 
 
 class CdxBomWriter(BomWriter, CDXType):
